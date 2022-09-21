@@ -84,6 +84,8 @@ def compute_offset2d_loss(input, target):
 
 
 def compute_depth_loss(input, target):
+    if target['mask_3d'].sum()==0:
+        return torch.tensor(0)
     depth_input = extract_input_from_tensor(input['depth'], target['indices'], target['mask_3d'])
     depth_input, depth_log_variance = depth_input[:, 0:1], depth_input[:, 1:2]
     depth_input = 1. / (depth_input.sigmoid() + 1e-6) - 1.
@@ -93,6 +95,8 @@ def compute_depth_loss(input, target):
 
 
 def compute_offset3d_loss(input, target):
+    if target['mask_3d'].sum()==0:
+        return torch.tensor(0)
     offset3d_input = extract_input_from_tensor(input['offset_3d'], target['indices'], target['mask_3d'])
     offset3d_target = extract_target_from_tensor(target['offset_3d'], target['mask_3d'])
     # print('fuck',offset3d_input,offset3d_target)
@@ -101,6 +105,8 @@ def compute_offset3d_loss(input, target):
 
 
 def compute_size3d_loss(input, target):
+    if target['mask_3d'].sum()==0:
+        return torch.tensor(0)
     size3d_input = extract_input_from_tensor(input['size_3d'], target['indices'], target['mask_3d'])
     size3d_target = extract_target_from_tensor(target['size_3d'], target['mask_3d'])
     size3d_loss = dim_aware_l1_loss(size3d_input, size3d_target, size3d_target)

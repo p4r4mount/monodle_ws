@@ -16,7 +16,7 @@ def my_worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
 
 
-def train(max_epoch=200, save_fre=50):
+def train(max_epoch=200, save_fre=50, save_pth='../../../models'):
     start_epoch = 0
     now_epoch = 0
     progress_bar = tqdm(range(start_epoch, max_epoch), dynamic_ncols=True, leave=True, desc='epochs')
@@ -33,7 +33,7 @@ def train(max_epoch=200, save_fre=50):
 
         if (now_epoch % save_fre) == 0:
             # ckpt_pth = '/project/train/models'
-            ckpt_pth = '../../models'
+            ckpt_pth = save_pth
             ckpt_name = os.path.join(ckpt_pth, 'checkpoint_epoch_%d' % now_epoch)
             save_checkpoint(get_checkpoint_state(model, optimizer, now_epoch), ckpt_name)
 
@@ -92,15 +92,29 @@ def model_state_to_cpu(model_state):
 
 
 if __name__ == "__main__":
-    batch_size = 2
+    
+    import argparse
+
+    parser = argparse.ArgumentParser(description='monodle for Rope3D')
+    parser.add_argument('--bs', dest='batch_size', default=4)
+    parser.add_argument('--downsample', dest='downsample', default=8)
+    parser.add_argument('--epochs', dest='max_epoch', default=140)
+    parser.add_argument('--save_fre', dest='save_fre', default=70)
+    parser.add_argument('--depth_threshold', dest='depth_threshold', default=120)
+    parser.add_argument('--save_pth', dest='save_pth', default='/home/song/Proj/Rope3D/monodle_models')
+    args = parser.parse_args()
+
+    batch_size = args.batch_size
     workers = 1
-    downsample = 4
-    max_epoch = 200
-    save_fre = 50
+    downsample = args.downsample
+    max_epoch = args.max_epoch
+    max_epoch = args.max_epoch
+    depth_threshold = args.depth_threshold
+    save_pth = args.save_pth
 
     # perpare dataset
-    train_set = Rope_Dataset(mode='train',downsample=downsample)
-    test_set = Rope_Dataset(mode='val',downsample=downsample)
+    train_set = Rope_Dataset(mode='train',downsample=downsample,depth_threshold=depth_threshold)
+    test_set = Rope_Dataset(mode='val',downsample=downsample,depth_threshold=depth_threshold)
 
     # prepare dataloader
     train_loader = DataLoader(dataset=train_set,
@@ -127,8 +141,8 @@ if __name__ == "__main__":
     # 优化器
     optim_cfg = {
         'type':'adam',
-        'lr':0.000125,
-        'weight_decay': 0.000001
+        'lr':0.00125,
+        'weight_decay': 0.00001
     }
     optimizer = build_optimizer(optim_cfg, model)
     # 学习策略
@@ -140,4 +154,4 @@ if __name__ == "__main__":
     lr_scheduler, warmup_lr_scheduler = build_lr_scheduler(lr_cfg, optimizer, last_epoch=-1)
 
     # 训练！
-    train(max_epoch,save_fre = 50)
+    train(max_epoch,save_fre = 50,save_pth=save_pth)

@@ -1,7 +1,216 @@
 import numpy as np
 import cv2
-
+import torch
+import torch.nn as nn
 num_heading_bin = 12 
+
+def class2angle(cls, residual, to_label_format=False):
+    ''' Inverse function to angle2class. '''
+    angle_per_class = 2 * np.pi / float(num_heading_bin)
+    angle_center = cls * angle_per_class
+    angle = angle_center + residual
+    if to_label_format and angle > np.pi:
+        angle = angle - 2 * np.pi
+    return angle
+
+def get_heading_angle(heading):
+    heading_bin, heading_res = heading[0:12], heading[12:24]
+    cls = np.argmax(heading_bin)
+    res = heading_res[cls]
+    return class2angle(cls, res, to_label_format=True)
+
+def decode_detections(dets, info, calibs, cls_mean_size, threshold):
+    '''
+    NOTE: THIS IS A NUMPY FUNCTION
+    input: dets, numpy array, shape in [batch x max_dets x dim]
+    input: img_info, dict, necessary information of input images
+    input: calibs, corresponding calibs for the input batch
+    output:
+    '''
+    results = {}
+    for i in range(dets.shape[0]):  # batch
+        preds = []
+        for j in range(dets.shape[1]):  # max_dets
+            cls_id = int(dets[i, j, 0])
+            score = dets[i, j, 1]
+            if score < threshold:
+                continue
+
+            # 2d bboxs decoding
+            x = dets[i, j, 2] * info['bbox_downsample_ratio'][i][0]
+            y = dets[i, j, 3] * info['bbox_downsample_ratio'][i][1]
+            w = dets[i, j, 4] * info['bbox_downsample_ratio'][i][0]
+            h = dets[i, j, 5] * info['bbox_downsample_ratio'][i][1]
+            bbox = [x - w / 2, y - h / 2, x + w / 2, y + h / 2]
+
+            # 3d bboxs decoding
+            # depth decoding
+            depth = dets[i, j, 6]
+
+            # dimensions decoding
+            dimensions = dets[i, j, 31:34]
+            dimensions += cls_mean_size[int(cls_id)]
+
+            # positions decoding
+            x3d = dets[i, j, 34] * info['bbox_downsample_ratio'][i][0]
+            y3d = dets[i, j, 35] * info['bbox_downsample_ratio'][i][1]
+            locations = calibs[i].img_to_rect(x3d, y3d, depth).reshape(-1)
+            locations[1] += dimensions[0] / 2
+
+            # heading angle decoding
+            alpha = get_heading_angle(dets[i, j, 7:31])
+            ry = calibs[i].alpha2ry(alpha, x3d)
+
+            #score = score * dets[i, j, -1]
+
+            ##### generate 2d bbox using 3d bbox
+            # h, w, l = dimensions
+            # x_corners = [l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2]
+            # y_corners = [0, 0, 0, 0, -h, -h, -h, -h]
+            # z_corners = [w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2]
+            # R = np.array([[np.cos(ry), 0, np.sin(ry)],
+            #               [0, 1, 0],
+            #               [-np.sin(ry), 0, np.cos(ry)]])
+            # corners3d = np.vstack([x_corners, y_corners, z_corners])  # (3, 8)
+            # corners3d = np.dot(R, corners3d).T
+            # corners3d = corners3d + locations
+            # bbox, _ = calibs[i].corners3d_to_img_boxes(corners3d.reshape(1, 8, 3))
+            # bbox = bbox.reshape(-1).tolist()
+
+            #preds.append([cls_id, alpha] + bbox + dimensions.tolist() + locations.tolist() + [ry, score])
+            preds.append([cls_id, 0, 0, alpha] + bbox + dimensions.tolist() + locations.tolist() + [ry])
+        results[info['img_id'][i]] = preds
+    return results
+
+def _nms(heatmap, kernel=3):
+    padding = (kernel - 1) // 2
+    heatmapmax = nn.functional.max_pool2d(heatmap, (kernel, kernel), stride=1, padding=padding)
+    keep = (heatmapmax == heatmap).float()
+    return heatmap * keep
+
+
+def _topk(heatmap, K=50):
+    batch, cat, height, width = heatmap.size()
+
+    # batch * cls_ids * 50
+    topk_scores, topk_inds = torch.topk(heatmap.view(batch, cat, -1), K)
+
+    topk_inds = topk_inds % (height * width)
+    topk_ys = (topk_inds / width).int().float()
+    topk_xs = (topk_inds % width).int().float()
+
+    # batch * cls_ids * 50
+    topk_score, topk_ind = torch.topk(topk_scores.view(batch, -1), K)
+    topk_cls_ids = (topk_ind / K).int()
+    topk_inds = _gather_feat(topk_inds.view(batch, -1, 1), topk_ind).view(batch, K)
+    topk_ys = _gather_feat(topk_ys.view(batch, -1, 1), topk_ind).view(batch, K)
+    topk_xs = _gather_feat(topk_xs.view(batch, -1, 1), topk_ind).view(batch, K)
+
+    return topk_score, topk_inds, topk_cls_ids, topk_xs, topk_ys
+
+def _gather_feat(feat, ind, mask=None):
+    '''
+    Args:
+        feat: tensor shaped in B * (H*W) * C
+        ind:  tensor shaped in B * K (default: 50)
+        mask: tensor shaped in B * K (default: 50)
+
+    Returns: tensor shaped in B * K or B * sum(mask)
+    '''
+    dim = feat.size(2)  # get channel dim
+    ind = ind.unsqueeze(2).expand(ind.size(0), ind.size(1), dim)  # B*len(ind) --> B*len(ind)*1 --> B*len(ind)*C
+    feat = feat.gather(1, ind)  # B*(HW)*C ---> B*K*C
+    if mask is not None:
+        mask = mask.unsqueeze(2).expand_as(feat)  # B*50 ---> B*K*1 --> B*K*C
+        feat = feat[mask]
+        feat = feat.view(-1, dim)
+    return feat
+
+def _transpose_and_gather_feat(feat, ind):
+    '''
+    Args:
+        feat: feature maps shaped in B * C * H * W
+        ind: indices tensor shaped in B * K
+    Returns:
+    '''
+    feat = feat.permute(0, 2, 3, 1).contiguous()  # B * C * H * W ---> B * H * W * C
+    feat = feat.view(feat.size(0), -1, feat.size(3))  # B * H * W * C ---> B * (H*W) * C
+    feat = _gather_feat(feat, ind)  # B * len(ind) * C
+    return feat
+
+def extract_dets_from_outputs(outputs, K=50):
+    # get src outputs
+    heatmap = outputs['heatmap']
+    heading = outputs['heading']
+    depth = outputs['depth'][:, 0:1, :, :]
+    sigma = outputs['depth'][:, 1:2, :, :]
+    size_3d = outputs['size_3d']
+    offset_3d = outputs['offset_3d']
+    size_2d = outputs['size_2d']
+    offset_2d = outputs['offset_2d']
+
+    heatmap = torch.clamp(heatmap.sigmoid_(), min=1e-4, max=1 - 1e-4)
+    depth = 1. / (depth.sigmoid() + 1e-6) - 1.
+    sigma = torch.exp(-sigma)
+
+    batch, channel, height, width = heatmap.size()  # get shape
+    heatmap = _nms(heatmap)
+    scores, inds, cls_ids, xs, ys = _topk(heatmap, K=K)
+
+    offset_2d = _transpose_and_gather_feat(offset_2d, inds)
+    offset_2d = offset_2d.view(batch, K, 2)
+    xs2d = xs.view(batch, K, 1) + offset_2d[:, :, 0:1]
+    ys2d = ys.view(batch, K, 1) + offset_2d[:, :, 1:2]
+
+    offset_3d = _transpose_and_gather_feat(offset_3d, inds)
+    offset_3d = offset_3d.view(batch, K, 2)
+    xs3d = xs.view(batch, K, 1) + offset_3d[:, :, 0:1]
+    ys3d = ys.view(batch, K, 1) + offset_3d[:, :, 1:2]
+
+    heading = _transpose_and_gather_feat(heading, inds)
+    heading = heading.view(batch, K, 24)
+    depth = _transpose_and_gather_feat(depth, inds)
+    depth = depth.view(batch, K, 1)
+    sigma = _transpose_and_gather_feat(sigma, inds)
+    sigma = sigma.view(batch, K, 1)
+    size_3d = _transpose_and_gather_feat(size_3d, inds)
+    size_3d = size_3d.view(batch, K, 3)
+    cls_ids = cls_ids.view(batch, K, 1).float()
+    scores = scores.view(batch, K, 1)
+
+    # check shape
+    xs2d = xs2d.view(batch, K, 1)
+    ys2d = ys2d.view(batch, K, 1)
+    xs3d = xs3d.view(batch, K, 1)
+    ys3d = ys3d.view(batch, K, 1)
+
+    size_2d = _transpose_and_gather_feat(size_2d, inds)
+    size_2d = size_2d.view(batch, K, 2)
+
+    detections = torch.cat([cls_ids, scores, xs2d, ys2d, size_2d, depth, heading, size_3d, xs3d, ys3d, sigma],
+                           dim=2)
+
+    return detections
+
+def get_calib(calib_string):
+    if isinstance(calib_string, str):
+        temp = calib_string.split(" ")
+        temp = [float(x) for x in temp]
+        temp = np.array(temp)
+        calib = temp.reshape((3,4))
+        return {'P2':calib}
+
+def deal_with_image(image,scale=[1920,1088]):
+    new_image = np.zeros([scale[1],scale[0],3],np.float32)
+    new_image[:image.size[1],:,:] = image
+    new_img = np.array(new_image).astype(np.float32) / 255.0
+    # 归一化
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    new_image = (new_image - mean) / std
+    new_image = new_image.transpose(2, 0, 1)
+    a,b,c = new_image.shape
+    return torch.tensor(new_image.reshape((1,a,b,c)))
 
 def angle2class(angle):
     ''' Convert continuous angle to discrete class and residual. '''
@@ -12,6 +221,9 @@ def angle2class(angle):
     class_id = int(shifted_angle / angle_per_class)
     residual_angle = shifted_angle - (class_id * angle_per_class + angle_per_class / 2)
     return class_id, residual_angle
+
+def my_worker_init_fn(worker_id):
+    np.random.seed(np.random.get_state()[1][0] + worker_id)
 
 def gaussian_radius(bbox_size, min_overlap=0.7):
     height, width = bbox_size

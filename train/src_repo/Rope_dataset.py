@@ -8,10 +8,11 @@ from utils import Calibration,Object3d,affine_transform,get_affine_transform,gau
 from draw_bbox import draw_bbox
 
 class Rope_Dataset(Dataset):
-    def __init__(self, mode, downsample):
+    def __init__(self, mode, downsample,depth_threshold):
         data_pth = '../../data'
         data_ls = os.listdir(data_pth)
         test_pth = os.path.join(data_pth,data_ls[0])
+        self.depth_threshold = depth_threshold
 
         self.mode = mode
         assert self.mode in['train','val']
@@ -164,7 +165,7 @@ class Rope_Dataset(Dataset):
                 continue
 
             # ignore the samples beyond the threshold [hard encoding]
-            threshold = 140
+            threshold = self.depth_threshold
             if objects[i].pos[-1] > threshold:
                 # print(3)
                 # print(objects[i].cls_type)
