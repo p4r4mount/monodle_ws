@@ -111,6 +111,7 @@ if __name__ == "__main__":
     max_epoch = args.max_epoch
     depth_threshold = args.depth_threshold
     save_pth = args.save_pth
+    # save_pth = '/project/train/models'
 
     # perpare dataset
     train_set = Rope_Dataset(mode='train',downsample=downsample,depth_threshold=depth_threshold)

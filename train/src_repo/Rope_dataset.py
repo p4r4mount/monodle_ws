@@ -10,6 +10,7 @@ from draw_bbox import draw_bbox
 class Rope_Dataset(Dataset):
     def __init__(self, mode, downsample,depth_threshold):
         data_pth = '../../data'
+        # data_pth = 'home/data'
         data_ls = os.listdir(data_pth)
         test_pth = os.path.join(data_pth,data_ls[0])
         self.depth_threshold = depth_threshold
