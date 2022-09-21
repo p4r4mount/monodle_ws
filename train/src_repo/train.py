@@ -108,7 +108,7 @@ if __name__ == "__main__":
     workers = 1
     downsample = args.downsample
     max_epoch = args.max_epoch
-    max_epoch = args.max_epoch
+    save_fre = args.save_fre
     depth_threshold = args.depth_threshold
     save_pth = args.save_pth
     # save_pth = '/project/train/models'
