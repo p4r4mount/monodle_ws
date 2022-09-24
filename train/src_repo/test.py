@@ -13,12 +13,13 @@ from draw_bbox import draw_bbox
 def my_test(image_path,model_path,calib,score_threshold):
     class_list = ['car', 'van', 'truck', 'bus', 'pedestrian', 'cyclist', 'motorcyclist', 'barrow', 'tricyclist']
     image = Image.open(image_path)
-    image = deal_with_image(image)
+    image = deal_with_image(image).to("cuda:0")
     calibs = [Calibration(get_calib(calib))]
     info = {'img_id': [0], 'img_size': [[1920, 1080]], 'bbox_downsample_ratio': [[4.0000*2, 3.9706*2]]}
     cls_mean_size = np.zeros((9, 3))
     net = CenterNet3D(backbone='dla34', downsample=8, num_class=9)
     net.load_state_dict(torch.load(model_path)['model_state'])
+    net = net.to("cuda:0")
 
     outputs = net(image)
     dets = extract_dets_from_outputs(outputs=outputs, K=50)

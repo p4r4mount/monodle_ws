@@ -99,7 +99,7 @@ if __name__ == "__main__":
     parser.add_argument('--bs', dest='batch_size', default=4)
     parser.add_argument('--downsample', dest='downsample', default=8)
     parser.add_argument('--epochs', dest='max_epoch', default=140)
-    parser.add_argument('--save_fre', dest='save_fre', default=70)
+    parser.add_argument('--save_fre', dest='save_fre', default=1)
     parser.add_argument('--depth_threshold', dest='depth_threshold', default=120)
     parser.add_argument('--save_pth', dest='save_pth', default='/home/song/Proj/Rope3D/monodle_models')
     args = parser.parse_args()
@@ -111,6 +111,8 @@ if __name__ == "__main__":
     save_fre = args.save_fre
     depth_threshold = args.depth_threshold
     save_pth = args.save_pth
+    pre_train = True
+    pre_train_pth = '/home/song/Proj/Rope3D/monodle_models/wusongzuiaidemoxing.pth'
     # save_pth = '/project/train/models'
 
     # perpare dataset
@@ -136,6 +138,10 @@ if __name__ == "__main__":
 
     # 模型
     model = CenterNet3D(backbone='dla34', neck='DLAUp', num_class=train_set.num_classes, downsample=downsample)
+    if pre_train == True:
+        model_pth = pre_train_pth
+        model.load_state_dict(torch.load(model_pth)['model_state'])
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = torch.nn.DataParallel(model, device_ids=[0]).to(device)
     print('load model finished!')
@@ -155,4 +161,4 @@ if __name__ == "__main__":
     lr_scheduler, warmup_lr_scheduler = build_lr_scheduler(lr_cfg, optimizer, last_epoch=-1)
 
     # 训练！
-    train(max_epoch,save_fre = 50,save_pth=save_pth)
+    train(max_epoch, save_fre, save_pth=save_pth)

@@ -32,8 +32,8 @@ class Rope_Dataset(Dataset):
         self.num_classes = len(self.writelist)
         self.downsample = downsample
         self.data_augmentation = True
-        self.random_flip = 0
-        self.random_crop = 0
+        self.random_flip = 0.5
+        self.random_crop = 0.2
         self.scale = 0.4
         self.shift = 0.1
 
