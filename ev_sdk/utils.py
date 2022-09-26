@@ -194,7 +194,9 @@ def extract_dets_from_outputs(outputs, K=50):
 
 def get_calib(calib_string):
     if isinstance(calib_string, str):
-        temp = calib_string.split(" ")
+        with open(calib_string) as f:
+            temp = f.readlines()
+        temp = temp[0].split(" ")[1:]
         temp = [float(x) for x in temp]
         temp = np.array(temp)
         calib = temp.reshape((3,4))

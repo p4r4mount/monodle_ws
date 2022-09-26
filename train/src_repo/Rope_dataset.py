@@ -255,11 +255,11 @@ class Rope_Dataset(Dataset):
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
-    dataset = Rope_Dataset('train',downsample=8)
+    dataset = Rope_Dataset('train',downsample=8,depth_threshold=120)
     dataloader = DataLoader(dataset=dataset,batch_size=1)
 
     for i,(inputs,target,info) in enumerate(dataloader):
-        # print(target['size_2d'])
+        print(target['size_3d'].max())
         break
 
             
