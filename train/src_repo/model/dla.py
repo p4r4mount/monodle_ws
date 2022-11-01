@@ -227,10 +227,15 @@ class DLA(nn.Module):
         self.return_levels = return_levels
         self.num_classes = num_classes
         self.base_layer = nn.Sequential(
-            nn.Conv2d(3, channels[0], kernel_size=7, stride=1,
+            nn.Conv2d(4, channels[0], kernel_size=7, stride=1,
                       padding=3, bias=False),
             BatchNorm(channels[0]),
             nn.ReLU(inplace=True))
+        '''self.base_layer = nn.Sequential(
+            nn.Conv2d(3, channels[0], kernel_size=7, stride=1,
+                      padding=3, bias=False),
+            BatchNorm(channels[0]),
+            nn.ReLU(inplace=True))'''
         self.level0 = self._make_conv_level(
             channels[0], channels[0], levels[0])
         self.level1 = self._make_conv_level(
@@ -320,7 +325,7 @@ class DLA(nn.Module):
 
 def dla34(pretrained=False, **kwargs):  # DLA-34
     model = DLA([1, 1, 1, 2, 2, 1],
-                [16, 32, 64, 128, 256, 256],
+                [16, 32, 64, 128, 256, 512],
                 block=BasicBlock, **kwargs)
     # model = nn.DataParallel(model)
     # model_pth = '/home/song/Proj/Rope3D/monodle_models/checkpoint_epoch_1.pth'

@@ -34,7 +34,7 @@ def train(max_epoch=200, save_fre=50, save_pth='../../../models'):
         if (now_epoch % save_fre) == 0:
             # ckpt_pth = '/project/train/models'
             ckpt_pth = save_pth
-            ckpt_name = os.path.join(ckpt_pth, 'checkpoint_epoch_%d' % now_epoch)
+            ckpt_name = os.path.join(ckpt_pth, 'checkpoint_epoch_9cls_half_%d' % now_epoch)
             save_checkpoint(get_checkpoint_state(model, optimizer, now_epoch), ckpt_name)
 
         progress_bar.update()
@@ -46,6 +46,9 @@ def train_one_epoch(now_epoch,max_epoch):
     model.train()
     progress_bar = tqdm(total=len(train_loader), leave=(now_epoch+1 == max_epoch), desc='iters')
     for batch_idx, (inputs, targets, _) in enumerate(train_loader):
+        '''if batch_idx == 4000:
+            break''' 
+        
         inputs = inputs.to(device)
         for key in targets.keys():
             targets[key] = targets[key].to(device)
@@ -53,8 +56,9 @@ def train_one_epoch(now_epoch,max_epoch):
         # train one batch
         optimizer.zero_grad()
         outputs = model(inputs)
-        # print(targets['size_2d'].sum())
+        #print(targets['size_3d'].size())
         total_loss, stats_batch = compute_centernet3d_loss(outputs, targets)
+
         # print(total_loss,'\n')
         # print(stats_batch)
         # if torch.isnan(total_loss):
@@ -96,24 +100,24 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='monodle for Rope3D')
-    parser.add_argument('--bs', dest='batch_size', default=4)
-    parser.add_argument('--downsample', dest='downsample', default=8)
-    parser.add_argument('--epochs', dest='max_epoch', default=140)
-    parser.add_argument('--save_fre', dest='save_fre', default=1)
-    parser.add_argument('--depth_threshold', dest='depth_threshold', default=120)
-    parser.add_argument('--save_pth', dest='save_pth', default='/home/song/Proj/Rope3D/monodle_models')
+    parser.add_argument('--bs', dest='batch_size', default=8)
+    parser.add_argument('--downsample', dest='downsample', default=4)
+    parser.add_argument('--epochs', dest='max_epoch', default=100)
+    parser.add_argument('--save_fre', dest='save_fre', default=50)
+    parser.add_argument('--depth_threshold', dest='depth_threshold', default=135)
+    parser.add_argument('--save_pth', dest='save_pth', default='')
     args = parser.parse_args()
 
     batch_size = args.batch_size
-    workers = 1
+    workers = 8
     downsample = args.downsample
     max_epoch = args.max_epoch
     save_fre = args.save_fre
     depth_threshold = args.depth_threshold
     save_pth = args.save_pth
-    pre_train = True
-    pre_train_pth = '/home/song/Proj/Rope3D/monodle_models/wusongzuiaidemoxing.pth'
-    # save_pth = '/project/train/models'
+    pre_train = False
+    pre_train_pth = '/project/train/models/checkpoint_epoch_9cls_half_10.pth'
+    save_pth = '/project/train/models'
 
     # perpare dataset
     train_set = Rope_Dataset(mode='train',downsample=downsample,depth_threshold=depth_threshold)
@@ -142,21 +146,21 @@ if __name__ == "__main__":
         model_pth = pre_train_pth
         model.load_state_dict(torch.load(model_pth)['model_state'])
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = torch.nn.DataParallel(model, device_ids=[0]).to(device)
     print('load model finished!')
     # 优化器
     optim_cfg = {
         'type':'adam',
-        'lr':0.00125,
+        'lr':0.001,
         'weight_decay': 0.00001
     }
     optimizer = build_optimizer(optim_cfg, model)
     # 学习策略
     lr_cfg = {
-        'warmup':True,  # 5 epoches, cosine warmup, init_lir=0.00001 in default
+        'warmup':False,  # 5 epoches, cosine warmup, init_lir=0.00001 in default
         'decay_rate':0.1,
-        'decay_list':[90, 120]
+        'decay_list':[50]
     }
     lr_scheduler, warmup_lr_scheduler = build_lr_scheduler(lr_cfg, optimizer, last_epoch=-1)
 

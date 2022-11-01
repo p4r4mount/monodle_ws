@@ -9,8 +9,9 @@ from draw_bbox import draw_bbox
 
 class Rope_Dataset(Dataset):
     def __init__(self, mode, downsample,depth_threshold):
+        #data_pth = r'C:\Users\34296\Desktop\code\monodle_ws-main\monodle_ws-main\data'
         data_pth = '../../data'
-        # data_pth = 'home/data'
+        # data_pth = '/home/data'
         data_ls = os.listdir(data_pth)
         test_pth = os.path.join(data_pth,data_ls[0])
         self.depth_threshold = depth_threshold
@@ -22,25 +23,28 @@ class Rope_Dataset(Dataset):
         self.calib_pth = os.path.join(data_pth,data_ls[0],'calib')
         self.image_pth = os.path.join(data_pth,data_ls[0],'image')
         self.label_pth = os.path.join(data_pth,data_ls[0],'label')
-        # self.depth_pth = os.path.join(data_pth,data_ls[1],'depth')
-        # self.depth_ls = sorted(os.listdir(self.depth_pth))
+        self.depth_pth = os.path.join(data_pth,data_ls[0],'depth')
+        
+        self.depth_ls = sorted(os.listdir(self.depth_pth))
         self.calib_ls = sorted(os.listdir(self.calib_pth))
         self.image_ls = sorted(os.listdir(self.image_pth))
         self.label_ls = sorted(os.listdir(self.label_pth))
         self.use_3d_center = True
         self.max_objs = 50
+        #elf.num_classes = 4
         self.num_classes = len(self.writelist)
         self.downsample = downsample
         self.data_augmentation = True
         self.random_flip = 0.5
         self.random_crop = 0.2
-        self.scale = 0.4
+        self.scale = 0.3
         self.shift = 0.1
-
+        self.resolution = np.array([1920//2,1088//2])
         # depth_img = cv2.imread(os.path.join(self.depth_pth,self.depth_ls[0]))
-        image_img = cv2.imread(os.path.join(self.image_pth,self.image_ls[0]))
-        self.resolution = np.array([image_img.shape[1],image_img.shape[0]])
-        self.resolution = np.array([1920,1088])
+        #image_img = cv2.imread(os.path.join(self.image_pth,self.image_ls[0]))
+
+        #self.resolution = np.array([image_img.shape[1],image_img.shape[0]])
+        
         # print(self.resolution)
         # print(self.calib_ls[0], self.image_ls[0])
 
@@ -60,6 +64,10 @@ class Rope_Dataset(Dataset):
         img_file = os.path.join(self.image_pth,self.image_ls[i])
         return Image.open(img_file)
 
+    def get_depth(self,i):
+        depth_file = os.path.join(self.depth_pth,self.depth_ls[i])
+        return Image.open(depth_file)
+
     def get_label(self,i):
         label_file = os.path.join(self.label_pth,self.label_ls[i])
         with open(label_file, 'r') as f:
@@ -72,7 +80,12 @@ class Rope_Dataset(Dataset):
 
     def __getitem__(self,i):
         # image loading 获取图像
+        '''if self.depth_ls[i]!=self.image_ls[i]:
+            print('fuck')
+        else :
+            print('yes')'''
         img = self.get_image(i)
+        depth_img = self.get_depth(i)
         img_size = np.array(img.size)
         features_size = self.resolution // self.downsample
         # print(features_size)
@@ -85,7 +98,7 @@ class Rope_Dataset(Dataset):
             if np.random.random() < self.random_flip:
                 random_flip_flag = True
                 img = img.transpose(Image.FLIP_LEFT_RIGHT)
-            
+                depth_img = depth_img.transpose(Image.FLIP_LEFT_RIGHT)
             if np.random.random() < self.random_crop:
                 random_crop_flag = True
                 aug_scale = np.clip(np.random.randn() * self.scale + 1, 1 - self.scale, 1 + self.scale)
@@ -101,16 +114,23 @@ class Rope_Dataset(Dataset):
                             method=Image.AFFINE,
                             data=tuple(trans_inv.reshape(-1).tolist()),
                             resample=Image.BILINEAR)
-        
+        depth_img = depth_img.transform(tuple(self.resolution.tolist()),
+                            method=Image.AFFINE,
+                            data=tuple(trans_inv.reshape(-1).tolist()),
+                            resample=Image.BILINEAR)
+
         img = np.array(img).astype(np.float32) / 255.0
+        depth_img = np.array(depth_img).astype(np.float32) / 255.0
+ 
         # print(img.shape)
         # 归一化
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-        cls_mean_size = np.zeros((9,3), dtype=np.float32)
         img = (img - mean) / std
+        cls_mean_size = np.zeros((self.num_classes,3), dtype=np.float32)
         img = img.transpose(2, 0, 1)
-        # print(img.shape)
+        depth_img = np.expand_dims(depth_img,axis=0)
+        img = np.concatenate((img,depth_img),axis=0)
 
         info = {'img_id': i,
                 'img_size': img_size,
@@ -160,6 +180,7 @@ class Rope_Dataset(Dataset):
 
             # filter inappropriate samples
             if objects[i].level_str == 'UnKnown' or objects[i].pos[-1] < 2:
+            #if objects[i].level_str == 'UnKnown':
                 # print(2)
                 # print(objects[i].cls_type)
                 # print(objects[i].level_str)
@@ -203,11 +224,11 @@ class Rope_Dataset(Dataset):
             w, h = bbox_2d[2] - bbox_2d[0], bbox_2d[3] - bbox_2d[1]
             radius = gaussian_radius((w, h))
             radius = max(0, int(radius))
-
+            '''
             if objects[i].cls_type in ['Van', 'Truck', 'DontCare']:
                 draw_umich_gaussian(heatmap[1], center_heatmap, radius)
                 continue
-
+            '''
             cls_id = self.cls2id[objects[i].cls_type]
             draw_umich_gaussian(heatmap[cls_id], center_heatmap, radius)
 
@@ -255,11 +276,11 @@ class Rope_Dataset(Dataset):
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
-    dataset = Rope_Dataset('train',downsample=8,depth_threshold=120)
+    dataset = Rope_Dataset('train',downsample=8)
     dataloader = DataLoader(dataset=dataset,batch_size=1)
 
     for i,(inputs,target,info) in enumerate(dataloader):
-        print(target['size_3d'].max())
+        # print(target['size_2d'])
         break
 
             

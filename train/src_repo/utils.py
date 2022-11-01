@@ -200,15 +200,20 @@ def get_calib(calib_string):
         calib = temp.reshape((3,4))
         return {'P2':calib}
 
-def deal_with_image(image,scale=[1920,1088]):
+def deal_with_image(image,depth,scale=[1920//2,1088//2]):
     new_image = np.zeros([scale[1],scale[0],3],np.float32)
-    new_image[:image.size[1],:,:] = image
+    new_depth = np.zeros([scale[1],scale[0]],np.float32)
+    new_image[:image.size[1],:,:] = image.resize(tuple(scale))
+    new_depth[:depth.size[1],:] = depth.resize(tuple(scale))
     new_image = np.array(new_image).astype(np.float32) / 255.0
+    new_depth = np.array(new_depth).astype(np.float32) / 255.0
     # 归一化
-    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-    std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-    new_image = (new_image - mean) / std
+    #mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    #std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    #new_image = (new_image - mean) / std
     new_image = new_image.transpose(2, 0, 1)
+    new_depth = np.expand_dims(new_depth,axis=0)
+    new_image = np.concatenate((new_image,new_depth),axis=0)
     a,b,c = new_image.shape
     return torch.tensor(new_image.reshape((1,a,b,c)))
 
@@ -356,16 +361,24 @@ class Object3d(object):
     def get_obj_level(self):
         height = float(self.box2d[3]) - float(self.box2d[1]) + 1
 
-        if self.trucation == -1:
-            self.level_str = 'DontCare'
-            return 0
-
-        if height >= 40 and self.trucation == 0 and self.occlusion == 0:
+        '''
+        if self.trucation == 0 and self.occlusion == 0:
             self.level_str = 'Easy'
             return 1  # Easy
-        elif height >= 25 and self.trucation == 0 and self.occlusion == 1:
+        elif self.trucation == 0 and self.occlusion == 1:
             self.level_str = 'Moderate'
             return 2  # Moderate
+        '''
+        if self.trucation == 0 and self.occlusion < 2:
+            self.level_str = 'Easy'
+            return 1  # Easy
+        elif self.trucation > 0 and self.occlusion < 2:
+            if np.random.rand()<0.5:
+                self.level_str = 'Moderate'
+                return 2  # Moderate
+            else:
+                self.level_str = 'UnKnown'
+                return 4
         # elif height >= 25 and self.trucation == 0 and self.occlusion <= 2:
         #     self.level_str = 'Hard'
         #     return 3  # Hard

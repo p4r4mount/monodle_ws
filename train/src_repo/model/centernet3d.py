@@ -75,7 +75,6 @@ class CenterNet3D(nn.Module):
 if __name__ == '__main__':
     import torch
     net = CenterNet3D(backbone='dla34',downsample=8)
-    
     # print(net)
 
     input = torch.randn(2, 3, 1088, 1920)
