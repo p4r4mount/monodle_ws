@@ -138,8 +138,11 @@ def _transpose_and_gather_feat(feat, ind):
     feat = _gather_feat(feat, ind)  # B * len(ind) * C
     return feat
 
-def extract_dets_from_outputs(outputs, K=50):
+def extract_dets_from_outputs(outputs, depth_img_o,K=50):
     # get src outputs
+    ##################
+    depth_img = torch.tensor(cv2.resize(np.array(depth_img_o),(1920//8,1088//8)).astype(np.float32)).to("cuda")
+    depth_img = depth_img.unsqueeze(0)
     heatmap = outputs['heatmap']
     heading = outputs['heading']
     depth = outputs['depth'][:, 0:1, :, :]
@@ -150,7 +153,8 @@ def extract_dets_from_outputs(outputs, K=50):
     offset_2d = outputs['offset_2d']
 
     heatmap = torch.clamp(heatmap.sigmoid_(), min=1e-4, max=1 - 1e-4)
-    depth = 1. / (depth.sigmoid() + 1e-6) - 1.
+    ###################
+    #depth = 1. / (depth.sigmoid() + 1e-6) - 1.
     sigma = torch.exp(-sigma)
 
     batch, channel, height, width = heatmap.size()  # get shape
@@ -170,6 +174,9 @@ def extract_dets_from_outputs(outputs, K=50):
     heading = _transpose_and_gather_feat(heading, inds)
     heading = heading.view(batch, K, 24)
     depth = _transpose_and_gather_feat(depth, inds)
+    #################################
+    depth_img = _transpose_and_gather_feat(depth_img.unsqueeze(1), inds)
+    depth = depth + depth_img
     depth = depth.view(batch, K, 1)
     sigma = _transpose_and_gather_feat(sigma, inds)
     sigma = sigma.view(batch, K, 1)
@@ -194,26 +201,38 @@ def extract_dets_from_outputs(outputs, K=50):
 
 def get_calib(calib_string):
     if isinstance(calib_string, str):
-        temp = calib_string.split(" ")
+        with open(calib_string) as f:
+            temp = f.readlines()
+        temp = temp[0].split(" ")[1:]
         temp = [float(x) for x in temp]
         temp = np.array(temp)
         calib = temp.reshape((3,4))
         return {'P2':calib}
 
-def deal_with_image(image,depth,scale=[1920//2,1088//2]):
+def deal_with_image(image,depth_image_o,scale=[1920//2,1088//2]):
     new_image = np.zeros([scale[1],scale[0],3],np.float32)
     new_depth = np.zeros([scale[1],scale[0]],np.float32)
-    new_image[:image.size[1],:,:] = image.resize(tuple(scale))
-    new_depth[:depth.size[1],:] = depth.resize(tuple(scale))
+
+    image = cv2.resize(image,(image.shape[1]//2,image.shape[0]//2))
+    depth_image = cv2.resize(depth_image_o,(depth_image_o.shape[1]//2,depth_image_o.shape[0]//2))
+
+
+    
+    new_image[:image.shape[0],:,:] = image
+    new_depth[:depth_image.shape[0],:] = depth_image
+
     new_image = np.array(new_image).astype(np.float32) / 255.0
     new_depth = np.array(new_depth).astype(np.float32) / 255.0
+
     # 归一化
-    #mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-    #std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-    #new_image = (new_image - mean) / std
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    new_image = (new_image - mean) / std
+    
     new_image = new_image.transpose(2, 0, 1)
     new_depth = np.expand_dims(new_depth,axis=0)
     new_image = np.concatenate((new_image,new_depth),axis=0)
+
     a,b,c = new_image.shape
     return torch.tensor(new_image.reshape((1,a,b,c)))
 
@@ -361,24 +380,16 @@ class Object3d(object):
     def get_obj_level(self):
         height = float(self.box2d[3]) - float(self.box2d[1]) + 1
 
-        '''
-        if self.trucation == 0 and self.occlusion == 0:
+        if self.trucation == -1:
+            self.level_str = 'DontCare'
+            return 0
+
+        if height >= 40 and self.trucation == 0 and self.occlusion == 0:
             self.level_str = 'Easy'
             return 1  # Easy
-        elif self.trucation == 0 and self.occlusion == 1:
+        elif height >= 25 and self.trucation == 0 and self.occlusion == 1:
             self.level_str = 'Moderate'
             return 2  # Moderate
-        '''
-        if self.trucation == 0 and self.occlusion < 2:
-            self.level_str = 'Easy'
-            return 1  # Easy
-        elif self.trucation > 0 and self.occlusion < 2:
-            if np.random.rand()<0.5:
-                self.level_str = 'Moderate'
-                return 2  # Moderate
-            else:
-                self.level_str = 'UnKnown'
-                return 4
         # elif height >= 25 and self.trucation == 0 and self.occlusion <= 2:
         #     self.level_str = 'Hard'
         #     return 3  # Hard
