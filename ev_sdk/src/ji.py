@@ -6,27 +6,29 @@ from model.centernet3d import CenterNet3D
 from utils import deal_with_image,get_calib,extract_dets_from_outputs,decode_detections,Calibration
 
 def init():       # 模型初始化
-    model_path = "/project/train/models/checkpoint_epoch_10.pth"
-    model = CenterNet3D(backbone='dla34', downsample=8, num_class=9)
+    model_path = "/project/train/models/checkpoint_epoch_9cls_half_10.pth"
+    model = CenterNet3D(backbone='dla34', neck='DLAUp', downsample=4, num_class=9)
     model.load_state_dict(torch.load(model_path)['model_state'])
-    model=model.to("cuda:0")
+    model=model.to("cuda")
     return model
 
 def process_image(net, input_image, args=None):
     with torch.no_grad():
-        info = {'img_id': [0], 'img_size': [[1920, 1080]], 'bbox_downsample_ratio': [[4.0000 * 2, 3.9706 * 2]]}
-        class_list = ['car', 'van', 'truck', 'bus', 'pedestrian', 'cyclist', 'motorcyclist', 'barrow', 'tricyclist']
-        cls_mean_size = np.zeros((9, 3))
+        info = {'img_id': [0], 'img_size': [[1920//2, 1080//2]], 'bbox_downsample_ratio': [[4.0000 * 2, 3.9706 * 2]]}
+        class_list = ['car','van' ,'truck','bus','pedestrian','cyclist','motorcyclist', 'barrow' ,'tricyclist']
+        cls_mean_size = np.zeros((len(class_list), 3))
         args = json.loads(args)
         calib = args.get('calib')
-        # print(calib)
+        depth = args.get('depth')
+        # print("depth:",depth)
         # calib = "2184.084907 0.000000 990.488434 0 0.000000 2330.131664 541.755886 0 0.000000 0.000000 1.000000 0"
         calibs = [Calibration(get_calib(calib))]
 
+        depth_img = cv2.imread(depth,cv2.IMREAD_GRAYSCALE)
         input_image = input_image[:, :, ::-1]
-        input_image = deal_with_image(input_image).to("cuda:0")
+        input_image = deal_with_image(input_image,depth_img).to("cuda")
         dets = net(input_image)
-        dets = extract_dets_from_outputs(outputs=dets, K=50)
+        dets = extract_dets_from_outputs(outputs=dets,depth_img_o=depth_img, K=50)
         dets = dets.detach().cpu().numpy()
 
         # get corresponding calibs & transform tensor to numpy
@@ -34,12 +36,23 @@ def process_image(net, input_image, args=None):
                                 info=info,
                                 calibs=calibs,
                                 cls_mean_size=cls_mean_size,
-                                threshold=0.2)
+                                threshold=0.35)
+        fine2coarse = {}
+        fine2coarse['van'] = 'car'
+        fine2coarse['car'] = 'car'
+        fine2coarse['bus'] = 'big_vehicle'
+        fine2coarse['truck'] = 'big_vehicle'
+        fine2coarse['cyclist'] = 'cyclist'
+        fine2coarse['motorcyclist'] = 'cyclist'
+        fine2coarse['tricyclist'] = 'cyclist'
+        fine2coarse['pedestrian'] = 'pedestrian'
+        fine2coarse['barrow'] = 'pedestrian'
         temp1 = dets[0]
         results = []
         for i in range(len(temp1)):
             temp2 = [str(x) for x in temp1[i]]
             temp2[0] = class_list[int(temp2[0])]
+            temp2[0] = fine2coarse[temp2[0]]
             results.append(temp2)
         '''
             假如 dets数据为

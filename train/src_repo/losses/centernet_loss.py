@@ -47,7 +47,7 @@ def compute_centernet3d_loss(input, target):
     depth_loss = compute_depth_loss(input, target)
     size3d_loss = compute_size3d_loss(input, target)
     heading_loss = compute_heading_loss(input, target)
-
+    
     # statistics
     stats_dict['seg'] = seg_loss.item()
     stats_dict['offset2d'] = offset2d_loss.item()
@@ -72,14 +72,16 @@ def compute_size2d_loss(input, target):
     # compute size2d loss
     size2d_input = extract_input_from_tensor(input['size_2d'], target['indices'], target['mask_2d'])
     size2d_target = extract_target_from_tensor(target['size_2d'], target['mask_2d'])
-    size2d_loss = F.l1_loss(size2d_input, size2d_target, reduction='mean')
+    #size2d_loss = F.l1_loss(size2d_input, size2d_target, reduction='mean')
+    size2d_loss = F.smooth_l1_loss(size2d_input, size2d_target, reduction='mean')
     return size2d_loss
 
 def compute_offset2d_loss(input, target):
     # compute offset2d loss
     offset2d_input = extract_input_from_tensor(input['offset_2d'], target['indices'], target['mask_2d'])
     offset2d_target = extract_target_from_tensor(target['offset_2d'], target['mask_2d'])
-    offset2d_loss = F.l1_loss(offset2d_input, offset2d_target, reduction='mean')
+    #offset2d_loss = F.l1_loss(offset2d_input, offset2d_target, reduction='mean')
+    offset2d_loss = F.smooth_l1_loss(offset2d_input, offset2d_target, reduction='mean')
     return offset2d_loss
 
 
@@ -87,10 +89,15 @@ def compute_depth_loss(input, target):
     if target['mask_3d'].sum()==0:
         return torch.tensor(0)
     depth_input = extract_input_from_tensor(input['depth'], target['indices'], target['mask_3d'])
+    depth_img = extract_input_from_tensor(target['depth_img'].unsqueeze(1), target['indices'], target['mask_3d'])
+
+    
     depth_input, depth_log_variance = depth_input[:, 0:1], depth_input[:, 1:2]
-    depth_input = 1. / (depth_input.sigmoid() + 1e-6) - 1.
+    #depth_input = 1. / (depth_input.sigmoid() + 1e-6) - 1.
+    depth_input = depth_input + depth_img
     depth_target = extract_target_from_tensor(target['depth'], target['mask_3d'])
     depth_loss = laplacian_aleatoric_uncertainty_loss(depth_input, depth_target, depth_log_variance)
+
     return depth_loss
 
 
@@ -99,8 +106,8 @@ def compute_offset3d_loss(input, target):
         return torch.tensor(0)
     offset3d_input = extract_input_from_tensor(input['offset_3d'], target['indices'], target['mask_3d'])
     offset3d_target = extract_target_from_tensor(target['offset_3d'], target['mask_3d'])
-    # print('fuck',offset3d_input,offset3d_target)
-    offset3d_loss = F.l1_loss(offset3d_input, offset3d_target, reduction='mean')
+    #offset3d_loss = F.l1_loss(offset3d_input, offset3d_target, reduction='mean')
+    offset3d_loss = F.smooth_l1_loss(offset3d_input, offset3d_target, reduction='mean')
     return offset3d_loss
 
 

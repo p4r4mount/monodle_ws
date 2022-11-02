@@ -8,7 +8,8 @@ def dim_aware_l1_loss(input, target, dimension):
     loss /= dimension
 
     with torch.no_grad():
-        compensation_weight = F.l1_loss(input, target) / loss.mean()
+        #compensation_weight = F.l1_loss(input, target) / loss.mean()
+        compensation_weight = F.smooth_l1_loss(input, target) / loss.mean()
     loss *= compensation_weight
 
     return loss.mean()

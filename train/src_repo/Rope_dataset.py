@@ -9,9 +9,8 @@ from draw_bbox import draw_bbox
 
 class Rope_Dataset(Dataset):
     def __init__(self, mode, downsample,depth_threshold):
-        #data_pth = r'C:\Users\34296\Desktop\code\monodle_ws-main\monodle_ws-main\data'
-        data_pth = '../../data'
-        # data_pth = '/home/data'
+        # data_pth = r'C:\Users\34296\Desktop\code\monodle_ws-main\monodle_ws-main\data'
+        data_pth = '/home/data'
         data_ls = os.listdir(data_pth)
         test_pth = os.path.join(data_pth,data_ls[0])
         self.depth_threshold = depth_threshold
@@ -37,7 +36,7 @@ class Rope_Dataset(Dataset):
         self.data_augmentation = True
         self.random_flip = 0.5
         self.random_crop = 0.2
-        self.scale = 0.3
+        self.scale = 0.25
         self.shift = 0.1
         self.resolution = np.array([1920//2,1088//2])
         # depth_img = cv2.imread(os.path.join(self.depth_pth,self.depth_ls[0]))
@@ -85,7 +84,7 @@ class Rope_Dataset(Dataset):
         else :
             print('yes')'''
         img = self.get_image(i)
-        depth_img = self.get_depth(i)
+        depth_img_o = self.get_depth(i)
         img_size = np.array(img.size)
         features_size = self.resolution // self.downsample
         # print(features_size)
@@ -98,7 +97,7 @@ class Rope_Dataset(Dataset):
             if np.random.random() < self.random_flip:
                 random_flip_flag = True
                 img = img.transpose(Image.FLIP_LEFT_RIGHT)
-                depth_img = depth_img.transpose(Image.FLIP_LEFT_RIGHT)
+                depth_img_o = depth_img_o.transpose(Image.FLIP_LEFT_RIGHT)
             if np.random.random() < self.random_crop:
                 random_crop_flag = True
                 aug_scale = np.clip(np.random.randn() * self.scale + 1, 1 - self.scale, 1 + self.scale)
@@ -114,14 +113,14 @@ class Rope_Dataset(Dataset):
                             method=Image.AFFINE,
                             data=tuple(trans_inv.reshape(-1).tolist()),
                             resample=Image.BILINEAR)
-        depth_img = depth_img.transform(tuple(self.resolution.tolist()),
+        depth_img_o = depth_img_o.transform(tuple(self.resolution.tolist()),
                             method=Image.AFFINE,
                             data=tuple(trans_inv.reshape(-1).tolist()),
                             resample=Image.BILINEAR)
 
         img = np.array(img).astype(np.float32) / 255.0
-        depth_img = np.array(depth_img).astype(np.float32) / 255.0
- 
+        depth_img = np.array(depth_img_o).astype(np.float32) / 255.0
+        
         # print(img.shape)
         # 归一化
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -252,7 +251,7 @@ class Rope_Dataset(Dataset):
 
             mask_2d[i] = 1
             mask_3d[i] = 0 if random_crop_flag else 1
-        
+
         # 整合返回数据
         inputs = img
         targets = {'depth': depth,
@@ -266,7 +265,8 @@ class Rope_Dataset(Dataset):
                    'heading_bin': heading_bin,
                    'heading_res': heading_res,
                    'mask_2d': mask_2d,
-                   'mask_3d': mask_3d}
+                   'mask_3d': mask_3d,
+                   'depth_img':cv2.resize(np.array(depth_img_o),features_size).astype(np.float32)}
 
         return inputs, targets, info
 
