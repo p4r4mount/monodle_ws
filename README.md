@@ -1,5 +1,5 @@
 # monodle_ws
-monodle for rope
+monodle for rope3D
 
 
 
